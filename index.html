@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video sin Contexto</title>
+    <title>Video con Fondo Rápido</title>
     <style>
         /* Estilo general y fondo inicial */
         body, html {
             margin: 0;
             padding: 0;
             height: 100%;
-            background-color: white; /* Color inicial antes de que el video cargue */
-            /* ¡Clave para el efecto suave! */
-            transition: background-color 1s ease; 
+            background-color: white; /* Color inicial */
+            /* CAMBIO: La transición ahora dura 0.3 segundos. Más rápida pero suave. */
+            transition: background-color 0.3s ease; 
         }
 
         /* Contenedor para centrar */
@@ -20,6 +20,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            overflow: hidden; /* Evita barras de scroll inesperadas */
         }
 
         /* Contenedor del video */
@@ -32,8 +33,8 @@
         #miVideo {
             width: 100%;
             height: auto;
-            border-radius: 10px; /* Bordes redondeados para un look más moderno */
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2); /* Sombra sutil */
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
         }
         
         #soundButton {
@@ -76,41 +77,25 @@
       const canvas = document.getElementById('colorCanvas');
       const ctx = canvas.getContext('2d');
 
-      // Configuración del botón de sonido (sin cambios)
       soundButton.addEventListener('click', function() {
         video.muted = false;
         soundButton.style.display = 'none';
       });
 
-      // --- Lógica para el fondo dinámico ---
-
-      // Cuando el video empiece a reproducirse, inicia el bucle de actualización de color
       video.addEventListener('play', () => {
-          // Ajusta el tamaño del canvas a 1x1 píxel
           canvas.width = 1;
           canvas.height = 1;
-          // Inicia el bucle de animación
           updateBackgroundColor();
       });
 
       function updateBackgroundColor() {
-          // 1. Dibuja el fotograma actual del video en el canvas de 1x1
           ctx.drawImage(video, 0, 0, 1, 1);
-          
-          // 2. Obtiene los datos de color de ese único píxel
           const pixelData = ctx.getImageData(0, 0, 1, 1).data;
-          
-          // 3. Construye el string de color RGB
           const color = `rgb(${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]})`;
-          
-          // 4. Aplica el color al fondo del body (la transición CSS lo hará suave)
           document.body.style.backgroundColor = color;
-          
-          // 5. Llama a esta misma función para el siguiente fotograma
           requestAnimationFrame(updateBackgroundColor);
       }
     </script>
 
 </body>
 </html>
-

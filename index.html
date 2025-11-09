@@ -5,81 +5,111 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video sin Contexto</title>
     <style>
-        /* Estilo general y fondo blanco */
+        /* Estilo general y fondo inicial */
         body, html {
             margin: 0;
             padding: 0;
             height: 100%;
-            background-color: white; /* Fondo cambiado a blanco */
+            background-color: white; /* Color inicial antes de que el video cargue */
+            /* ¡Clave para el efecto suave! */
+            transition: background-color 1s ease; 
         }
 
-        /* Contenedor para centrar y posicionar elementos */
+        /* Contenedor para centrar */
         body {
             display: flex;
             justify-content: center;
             align-items: center;
         }
 
-        /* Contenedor relativo para el video y el botón */
+        /* Contenedor del video */
         .video-container {
             position: relative;
-            width: 1000px; /* Ancho base del contenedor */
-            max-width: 1000%; /* Asegura que se adapte a móviles */
+            width: 640px;
+            max-width: 90%;
         }
 
-        /* Estilo para el video, para que ocupe el 100% de su contenedor */
         #miVideo {
             width: 100%;
             height: auto;
+            border-radius: 10px; /* Bordes redondeados para un look más moderno */
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); /* Sombra sutil */
         }
         
-        /* Estilo para el botón de sonido */
         #soundButton {
-            position: absolute; /* Posición sobre el video */
+            position: absolute;
             top: 20px;
             left: 20px;
-            width: 25px;  /* Ancho del ícono */
-            height: 25px; /* Alto del ícono */
-            cursor: pointer; /* Muestra una mano al pasar el cursor */
-            z-index: 10; /* Asegura que esté por encima del video */
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            z-index: 10;
+            transition: opacity 0.3s;
+        }
+        
+        #soundButton:hover {
+            opacity: 0.7;
+        }
+        
+        /* Canvas oculto para procesar el color */
+        #colorCanvas {
+            display: none;
         }
     </style>
 </head>
 <body>
 
-    <!-- Contenedor para el video y el botón -->
-    <div class="video-container">
-        
-        <!-- Botón de sonido (ícono) -->
-        <img src="SonidoFoto.png" id="soundButton" alt="Activar sonido">
+    <!-- Canvas para el procesamiento de color -->
+    <canvas id="colorCanvas"></canvas>
 
-        <!-- Etiqueta de video con el atributo para deshabilitar Chromecast -->
+    <div class="video-container">
+        <img src="Sonido.png" id="soundButton" alt="Activar sonido">
         <video id="miVideo" autoplay muted loop disableRemotePlayback>
           <source src="Laufey.mp4" type="video/mp4">
           Tu navegador no soporta la etiqueta de video.
         </video>
-
     </div>
 
-    <!-- Script para el botón -->
     <script>
       const video = document.getElementById('miVideo');
       const soundButton = document.getElementById('soundButton');
+      const canvas = document.getElementById('colorCanvas');
+      const ctx = canvas.getContext('2d');
 
-      // Añade un listener al botón
+      // Configuración del botón de sonido (sin cambios)
       soundButton.addEventListener('click', function() {
-        // 1. Activa el sonido del video
         video.muted = false;
-        
-        // 2. Oculta el botón
         soundButton.style.display = 'none';
       });
+
+      // --- Lógica para el fondo dinámico ---
+
+      // Cuando el video empiece a reproducirse, inicia el bucle de actualización de color
+      video.addEventListener('play', () => {
+          // Ajusta el tamaño del canvas a 1x1 píxel
+          canvas.width = 1;
+          canvas.height = 1;
+          // Inicia el bucle de animación
+          updateBackgroundColor();
+      });
+
+      function updateBackgroundColor() {
+          // 1. Dibuja el fotograma actual del video en el canvas de 1x1
+          ctx.drawImage(video, 0, 0, 1, 1);
+          
+          // 2. Obtiene los datos de color de ese único píxel
+          const pixelData = ctx.getImageData(0, 0, 1, 1).data;
+          
+          // 3. Construye el string de color RGB
+          const color = `rgb(${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]})`;
+          
+          // 4. Aplica el color al fondo del body (la transición CSS lo hará suave)
+          document.body.style.backgroundColor = color;
+          
+          // 5. Llama a esta misma función para el siguiente fotograma
+          requestAnimationFrame(updateBackgroundColor);
+      }
     </script>
 
 </body>
 </html>
-
-
-
-
-

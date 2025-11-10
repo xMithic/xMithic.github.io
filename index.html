@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Laufeeey - Visualizador Creativo</title>
+    <title>Visualizador Creativo</title>
     <style>
         :root {
             --cursor-size: 12px;
@@ -23,7 +23,6 @@
                 transform: translateY(0) scale(1);
             }
         }
-
         body, html {
             margin: 0;
             padding: 0;
@@ -37,7 +36,6 @@
             -moz-user-select: none;
             -ms-user-select: none;
         }
-
         #background-video,
         #particle-canvas,
         #drawing-canvas {
@@ -63,7 +61,6 @@
             mix-blend-mode: difference;
             pointer-events: none;
         }
-
         .perspective-wrapper {
             display: flex;
             justify-content: center;
@@ -136,7 +133,6 @@
             transform: translateY(-20px);
             opacity: 1;
         }
-
         #custom-cursor {
             position: fixed;
             width: var(--cursor-size);
@@ -155,8 +151,6 @@
         #custom-cursor.hidden {
             opacity: 0;
         }
-
-        /* Botón para activar/desactivar audio */
         #audio-toggle-btn {
             position: absolute;
             top: 20px;
@@ -206,7 +200,7 @@
                 <video id="miVideo" loop muted playsinline autoplay disableRemotePlayback>
                     <source src="Laufey.mp4" type="video/mp4" />
                 </video>
-                <button id="audio-toggle-btn" aria-label="Activar o silenciar audio" title="Activar o silenciar audio" class="muted">
+                <button id="audio-toggle-btn" aria-label="Activar o silenciar audio" title="Activar audio">
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9zM12 4L9.91 6.09 12 8.18V4z"/>
                     </svg>
@@ -228,7 +222,7 @@
             const pCtx = particleCanvas.getContext('2d');
             const audioToggleBtn = document.getElementById('audio-toggle-btn');
 
-            // Sincronización de videos para evitar desfase
+            // Sincronizar videos
             const videoReady = (vid) => new Promise(resolve => vid.addEventListener('canplaythrough', resolve, { once: true }));
             Promise.all([videoReady(mainVideo), videoReady(bgVideo)]).then(() => {
                 mainVideo.play();
@@ -255,10 +249,11 @@
                 cursor.style.top = `${e.clientY}px`;
             });
 
-            // Configuración para dibujo en canvas
+            // Dibujo en canvas solo activado después de audio
             let isDrawing = false,
                 lastX = 0,
                 lastY = 0;
+            let drawingReady = false;
 
             const resizeDrawingCanvas = () => {
                 drawingCanvas.width = window.innerWidth;
@@ -275,17 +270,20 @@
             const getCoords = (e) => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
 
             const handleStart = (e) => {
+                if (!drawingReady) return;
                 e.preventDefault();
                 isDrawing = true;
                 [lastX, lastY] = getCoords(e);
             };
 
             const handleEnd = (e) => {
+                if (!drawingReady) return;
                 e.preventDefault();
                 isDrawing = false;
             };
 
             const draw = (e) => {
+                if (!drawingReady) return;
                 if (e.touches) e.preventDefault();
                 if (!isDrawing) return;
 
@@ -299,54 +297,48 @@
             };
 
             const fadeDrawingTrail = () => {
+                if (!drawingReady) return;
                 dCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
                 dCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
                 requestAnimationFrame(fadeDrawingTrail);
             };
 
-            // Activar eventos de dibujo
-            drawingCanvas.style.pointerEvents = 'auto';
-            drawingCanvas.addEventListener('mousedown', handleStart);
-            drawingCanvas.addEventListener('mousemove', draw);
-            drawingCanvas.addEventListener('mouseup', handleEnd);
-            drawingCanvas.addEventListener('mouseleave', handleEnd);
-            drawingCanvas.addEventListener('touchstart', handleStart, { passive: false });
-            drawingCanvas.addEventListener('touchmove', draw, { passive: false });
-            drawingCanvas.addEventListener('touchend', handleEnd);
-
-            fadeDrawingTrail();
-
-            // Setup Web Audio API para visualización
-            let audioContext, analyser, source;
-
-            function setupAudio() {
-                if (!audioContext) {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    source = audioContext.createMediaElementSource(mainVideo);
-                    analyser = audioContext.createAnalyser();
-                    source.connect(analyser);
-                    analyser.connect(audioContext.destination);
-                    audioContext.resume();
+            // Audio y dibujo se activa aquí
+            audioToggleBtn.addEventListener('click', async () => {
+                // Intentar activar audioContext porque muchos navegadores requieren interacción
+                if (!window.audioContext) {
+                    window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-            }
-
-            setupAudio();
-
-            // Botón para silenciar / activar audio
-            audioToggleBtn.addEventListener('click', () => {
-                if (mainVideo.muted) {
-                    mainVideo.muted = false;
-                    audioToggleBtn.classList.remove('muted');
-                    audioToggleBtn.title = "Silenciar audio";
-                    audioContext.resume();
-                } else {
-                    mainVideo.muted = true;
-                    audioToggleBtn.classList.add('muted');
-                    audioToggleBtn.title = "Activar audio";
+                if (window.audioContext.state === 'suspended') {
+                    await window.audioContext.resume();
                 }
+
+                mainVideo.muted = false;
+                audioToggleBtn.style.display = 'none';
+
+                // Setup audio context y analizadores
+                if (!window.analyser) {
+                    const source = window.audioContext.createMediaElementSource(mainVideo);
+                    window.analyser = window.audioContext.createAnalyser();
+                    source.connect(window.analyser);
+                    window.analyser.connect(window.audioContext.destination);
+                }
+
+                drawingReady = true;
+                drawingCanvas.style.pointerEvents = 'auto';
+                drawingCanvas.addEventListener('mousedown', handleStart);
+                drawingCanvas.addEventListener('mousemove', draw);
+                drawingCanvas.addEventListener('mouseup', handleEnd);
+                drawingCanvas.addEventListener('mouseleave', handleEnd);
+                drawingCanvas.addEventListener('touchstart', handleStart, { passive: false });
+                drawingCanvas.addEventListener('touchmove', draw, { passive: false });
+                drawingCanvas.addEventListener('touchend', handleEnd);
+
+                fadeDrawingTrail();
+                animateParticles();
             });
 
-            // Motor de partículas
+            // Partículas
             let particlesArray = [];
             const resizeParticleCanvas = () => {
                 particleCanvas.width = window.innerWidth;
@@ -398,7 +390,9 @@
             let peakCooldown = 0;
 
             function animateParticles() {
-                if (!analyser) return;
+                if (!window.analyser) return;
+                const analyser = window.analyser;
+
                 const bufferLength = analyser.frequencyBinCount;
                 const dataArray = new Uint8Array(bufferLength);
                 analyser.getByteFrequencyData(dataArray);
@@ -432,13 +426,9 @@
                         p.draw(treble);
                     }
                 }
-
                 requestAnimationFrame(animateParticles);
             }
-
-            animateParticles();
         });
     </script>
 </body>
 </html>
-

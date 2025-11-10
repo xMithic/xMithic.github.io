@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sinfonía Visual (Fuegos Artificiales Épicos)</title>
+    <title>Laufeeey</title>
     <style>
         :root { --cursor-size: 10px; --cursor-bg: white; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -196,75 +196,60 @@
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     source = audioContext.createMediaElementSource(mainVideo);
                     analyser = audioContext.createAnalyser();
-                    analyser.fftSize = 256;
                     source.connect(analyser);
                     analyser.connect(audioContext.destination);
                 }
                 audioContext.resume();
-                initParticles();
                 animateParticles();
             });
 
-            // --- MOTOR DE PARTÍCULAS "FUEGOS ARTIFICIALES ÉPICOS" ---
-            let particlesArray;
+            // --- MOTOR DE PARTÍCULAS "AURORA RÍTMICA" (CALIBRADO) ---
+            let particlesArray = [];
             const resizeParticleCanvas = () => { particleCanvas.width = window.innerWidth; particleCanvas.height = window.innerHeight; };
             resizeParticleCanvas(); window.addEventListener('resize', resizeParticleCanvas);
             
             class Particle {
-                constructor() {
-                    this.reset();
-                }
-
-                reset() {
-                    this.x = particleCanvas.width / 2;
-                    this.y = particleCanvas.height / 2;
+                constructor(x, y, color) {
+                    this.x = x;
+                    this.y = y;
                     this.angle = Math.random() * Math.PI * 2;
+                    this.speed = Math.random() * 4 + 1;
+                    this.friction = 0.96;
+                    this.gravity = 0.1;
                     this.radius = Math.random() * 2 + 1;
-                    this.color = 'rgba(255, 255, 255, 0.8)';
-                    this.velocityX = 0;
-                    this.velocityY = 0;
+                    this.life = 100;
+                    this.maxLife = this.life;
+                    this.color = color;
                 }
 
-                update(bass, treble) {
-                    // Los bajos disparan las partículas hacia afuera
-                    const bassForce = bass / 20;
-                    this.velocityX += Math.cos(this.angle) * bassForce;
-                    this.velocityY += Math.sin(this.angle) * bassForce;
-                    
-                    // Gravedad y fricción
-                    this.velocityY += 0.1;
-                    this.velocityX *= 0.95;
-                    this.velocityY *= 0.95;
-
-                    // Actualiza la posición
-                    this.x += this.velocityX;
-                    this.y += this.velocityY;
-
-                    // Los agudos controlan el brillo
-                    const opacity = Math.max(0.4, Math.min(1, treble / 100));
-                    this.color = `rgba(255, 255, 255, ${opacity})`;
-                    
-                    // Si la partícula se sale de la pantalla, reiníciala
-                    if (this.x < 0 || this.x > particleCanvas.width || this.y < 0 || this.y > particleCanvas.height) {
-                        this.reset();
-                    }
+                update(treble) {
+                    this.speed *= this.friction;
+                    this.x += Math.cos(this.angle) * this.speed;
+                    this.y += Math.sin(this.angle) * this.speed + this.gravity;
+                    this.life -= 1;
+                    this.radius = Math.max(0, this.radius - 0.02);
                 }
 
-                draw() {
+                draw(treble) {
+                    pCtx.globalAlpha = (this.life / this.maxLife) * (treble / 100 + 0.5);
                     pCtx.fillStyle = this.color;
                     pCtx.beginPath();
                     pCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
                     pCtx.fill();
+                    pCtx.globalAlpha = 1.0;
                 }
             }
 
-            function initParticles() {
-                particlesArray = [];
-                for (let i = 0; i < 250; i++) {
-                    particlesArray.push(new Particle());
+            function createNebula(x, y, bass) {
+                const particleCount = 60;
+                const hue = Math.random() * 360;
+                for (let i = 0; i < particleCount; i++) {
+                    const color = `hsl(${hue + Math.random() * 60}, 100%, 75%)`;
+                    particlesArray.push(new Particle(x, y, color));
                 }
             }
-
+            
+            let lastBass = 0;
             function animateParticles() {
                 if (!analyser) return;
                 
@@ -273,13 +258,27 @@
                 analyser.getByteFrequencyData(dataArray);
                 
                 const bass = dataArray.slice(0, Math.floor(bufferLength * 0.2)).reduce((a, b) => a + b, 0) / (bufferLength * 0.2);
-                const treble = dataArray.slice(Math.floor(bufferLength * 0.5)).reduce((a, b) => a + b, 0) / (bufferLength * 0.5);
+                const treble = dataArray.slice(Math.floor(bufferLength * 0.4)).reduce((a, b) => a + b, 0) / (bufferLength * 0.6);
+
+                // AJUSTE FINAL DE SENSIBILIDAD
+                const bassThreshold = 60; // Umbral más bajo
+                const bassJump = bass - lastBass;
+
+                if (bassJump > 10 && bass > bassThreshold) { // Salto de bajo más sensible
+                    createNebula(Math.random() * particleCanvas.width, Math.random() * particleCanvas.height, bass);
+                }
+                lastBass = bass;
 
                 pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
-                particlesArray.forEach(p => { 
-                    p.update(bass, treble);
-                    p.draw();
-                });
+                for (let i = particlesArray.length - 1; i >= 0; i--) {
+                    const p = particlesArray[i];
+                    if (p.life <= 0) {
+                        particlesArray.splice(i, 1);
+                    } else {
+                        p.update(treble);
+                        p.draw(treble);
+                    }
+                }
                 
                 requestAnimationFrame(animateParticles);
             }

@@ -151,21 +151,48 @@
                 cursor.style.left = `${e.clientX}px`; cursor.style.top = `${e.clientY}px`;
             });
 
-            let isDrawing = false, lastX = 0, lastY = 0;
-            const resizeDrawingCanvas = () => { drawingCanvas.width = window.innerWidth; drawingCanvas.height = window.innerHeight; };
-            resizeDrawingCanvas(); window.addEventListener('resize', resizeDrawingCanvas);
-            dCtx.strokeStyle = '#FFF'; dCtx.lineWidth = 3; dCtx.lineCap = 'round'; dCtx.lineJoin = 'round';
-            const getCoords = (e) => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
-            const handleStart = (e) => { isDrawing = true; [lastX, lastY] = getCoords(e); };
-            const handleEnd = () => isDrawing = false;
+            let isDrawing = false,
+                lastX = 0,
+                lastY = 0;
+
+            const resizeDrawingCanvas = () => {
+                drawingCanvas.width = window.innerWidth;
+                drawingCanvas.height = window.innerHeight;
+            };
+            resizeDrawingCanvas();
+            window.addEventListener('resize', resizeDrawingCanvas);
+
+            dCtx.strokeStyle = '#FFF';
+            dCtx.lineWidth = 3;
+            dCtx.lineCap = 'round';
+            dCtx.lineJoin = 'round';
+
+            const getCoords = (e) => (e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY]);
+
+            const handleStart = (e) => {
+                e.preventDefault(); // Prevenir scroll en touch
+                isDrawing = true;
+                [lastX, lastY] = getCoords(e);
+            };
+
+            const handleEnd = (e) => {
+                e.preventDefault();
+                isDrawing = false;
+            };
+
             const draw = (e) => {
                 if (e.touches) e.preventDefault();
                 if (!isDrawing) return;
-                dCtx.beginPath(); dCtx.moveTo(lastX, lastY);
+
                 const [currentX, currentY] = getCoords(e);
-                dCtx.lineTo(currentX, currentY); dCtx.stroke();
+                dCtx.beginPath();
+                dCtx.moveTo(lastX, lastY);
+                dCtx.lineTo(currentX, currentY);
+                dCtx.stroke();
+
                 [lastX, lastY] = [currentX, currentY];
             };
+
             const fadeDrawingTrail = () => {
                 dCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
                 dCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
@@ -174,6 +201,7 @@
 
             let audioContext, analyser, source;
             let setupDone = false;
+
             muteBtn.addEventListener('click', (e) => {
                 if (setupDone) return;
                 setupDone = true;
@@ -189,7 +217,7 @@
                 drawingCanvas.addEventListener('touchmove', draw, { passive: false });
                 drawingCanvas.addEventListener('touchend', handleEnd);
                 fadeDrawingTrail();
-                
+
                 mainVideo.muted = false;
 
                 if (!audioContext) {
@@ -205,9 +233,13 @@
 
             // --- MOTOR DE PARTÍCULAS "AURORA RÍTMICA" (MEJORADO) ---
             let particlesArray = [];
-            const resizeParticleCanvas = () => { particleCanvas.width = window.innerWidth; particleCanvas.height = window.innerHeight; };
-            resizeParticleCanvas(); window.addEventListener('resize', resizeParticleCanvas);
-            
+            const resizeParticleCanvas = () => {
+                particleCanvas.width = window.innerWidth;
+                particleCanvas.height = window.innerHeight;
+            };
+            resizeParticleCanvas();
+            window.addEventListener('resize', resizeParticleCanvas);
+
             class Particle {
                 constructor(x, y, color) {
                     this.x = x;
@@ -248,17 +280,17 @@
                     particlesArray.push(new Particle(x, y, color));
                 }
             }
-            
+
             let lastBass = 0;
             let peakCooldown = 0;
 
             function animateParticles() {
                 if (!analyser) return;
-                
+
                 const bufferLength = analyser.frequencyBinCount;
                 const dataArray = new Uint8Array(bufferLength);
                 analyser.getByteFrequencyData(dataArray);
-                
+
                 // Calcular bajos (bass) y agudos (treble) en rangos específicos
                 const bassRange = dataArray.slice(0, Math.floor(bufferLength * 0.13));
                 const bass = bassRange.reduce((a, b) => a + b, 0) / bassRange.length;
@@ -289,7 +321,7 @@
                         p.draw(treble);
                     }
                 }
-                
+
                 requestAnimationFrame(animateParticles);
             }
         });

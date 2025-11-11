@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Edit</title>
+    <title>Pana</title>
     <style>
         :root {
             --cursor-size: 12px;
@@ -59,7 +59,7 @@
         #drawing-canvas {
             z-index: 50;
             mix-blend-mode: difference;
-            pointer-events: auto; /* permitir siempre recibir eventos para dibujar */
+            pointer-events: none;
             touch-action: none;
         }
         .perspective-wrapper {
@@ -259,7 +259,7 @@
             let isDrawing = false,
                 lastX = 0,
                 lastY = 0;
-            let drawingReady = true; // habilitar el bucle de desvanecimiento y dibujo desde el inicio
+            let drawingReady = false;
 
             const resizeDrawingCanvas = () => {
                 drawingCanvas.width = window.innerWidth;
@@ -314,57 +314,30 @@
             drawingCanvas.addEventListener('touchmove', draw, { passive: false });
             drawingCanvas.addEventListener('touchend', handleEnd);
 
-            // arrancar bucle de desvanecimiento desde el inicio para evitar que
-            // dibujos se pierdan dependiendo del orden de entrada
-            fadeDrawingTrail();
-
-            // Toggle audio y dibujo con botón (no ocultar botón)
+            // Activar audio y dibujo con botón: crea y reanuda audioContext acá para móviles
             audioToggleBtn.addEventListener('click', async () => {
-                try {
-                    if (!window.audioContext) {
-                        window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    }
-
-                    // Si está suspendido, reanudar para que el audio suene
-                    if (window.audioContext.state === 'suspended') {
-                        await window.audioContext.resume();
-                    }
-
-                    // Crear analyser solo la primera vez
-                    if (!window.analyser) {
-                        const source = window.audioContext.createMediaElementSource(mainVideo);
-                        window.analyser = window.audioContext.createAnalyser();
-                        source.connect(window.analyser);
-                        window.analyser.connect(window.audioContext.destination);
-                    }
-
-                    const currentlyMuted = mainVideo.muted;
-                    if (currentlyMuted) {
-                        // Activar sonido
-                        mainVideo.muted = false;
-                        audioToggleBtn.classList.remove('muted');
-                        audioToggleBtn.setAttribute('title', 'Silenciar audio');
-                        audioToggleBtn.setAttribute('aria-pressed', 'true');
-                        // arrancar partículas si no lo habían hecho
-                        animateParticles();
-                    } else {
-                        // Silenciar y suspender context para ahorrar recursos
-                        mainVideo.muted = true;
-                        audioToggleBtn.classList.add('muted');
-                        audioToggleBtn.setAttribute('title', 'Activar audio');
-                        audioToggleBtn.setAttribute('aria-pressed', 'false');
-                        if (window.audioContext && window.audioContext.state === 'running') {
-                            await window.audioContext.suspend();
-                        }
-                    }
-
-                    // Dibujo siempre activo independientemente del audio
-                    drawingReady = true;
-                    drawingCanvas.style.pointerEvents = 'auto';
-                    fadeDrawingTrail();
-                } catch (err) {
-                    console.error('Audio toggle error:', err);
+                if (!window.audioContext) {
+                    window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
+                if (window.audioContext.state === 'suspended') {
+                    await window.audioContext.resume();
+                }
+
+                mainVideo.muted = false;
+                audioToggleBtn.style.display = 'none';
+
+                if (!window.analyser) {
+                    const source = window.audioContext.createMediaElementSource(mainVideo);
+                    window.analyser = window.audioContext.createAnalyser();
+                    source.connect(window.analyser);
+                    window.analyser.connect(window.audioContext.destination);
+                }
+
+                drawingReady = true;
+                drawingCanvas.style.pointerEvents = 'auto';
+
+                fadeDrawingTrail();
+                animateParticles();
             });
 
             // Motor de partículas visuales
@@ -461,4 +434,8 @@
     </script>
 </body>
 </html>
+
+
+
+
 

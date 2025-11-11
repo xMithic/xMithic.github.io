@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PanitaGod</title>
+  <title>PanitaX</title>
   <style>
     :root { --cursor-size: 12px; --cursor-bg: white; }
 
@@ -13,7 +13,7 @@
     html, body {
       margin: 0; padding: 0; height: 100%; overflow: hidden; cursor: none;
       background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;
       -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
     }
@@ -23,16 +23,15 @@
     }
 
     #background-video {
-      z-index: 1; filter: blur(45px) brightness(0.55); object-fit: cover; animation: fadeIn 1.8s ease-out; pointer-events: none;
+      z-index: 1; filter: blur(45px) brightness(0.55); object-fit: cover;
+      animation: fadeIn 1.8s ease-out; pointer-events: none;
     }
 
     #particle-canvas { z-index: 2; pointer-events: none; }
 
     #drawing-canvas {
-      z-index: 50;
-      mix-blend-mode: difference; /* Mantén tu estética original */
-      pointer-events: auto;
-      touch-action: none; /* Frena gestos del navegador mientras dibujas */
+      z-index: 50; mix-blend-mode: difference; pointer-events: auto;
+      touch-action: none; /* evita scroll/zoom mientras se dibuja */
     }
 
     .perspective-wrapper {
@@ -85,11 +84,14 @@
       position: fixed; top: 16px; right: 16px; z-index: 10010;
       background-color: rgba(255,255,255,0.15); border: none; border-radius: 12px;
       width: 42px; height: 42px; display: flex; justify-content: center; align-items: center;
-      transition: background-color 0.3s ease; pointer-events: auto; touch-action: manipulation;
+      transition: background-color 0.3s ease, opacity 220ms ease, transform 220ms ease;
+      pointer-events: auto; touch-action: manipulation; will-change: opacity, transform;
     }
     #audio-toggle-btn:hover { background-color: rgba(255,255,255,0.4); }
     #audio-toggle-btn svg { width: 24px; height: 24px; fill: white; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); transition: transform 0.2s ease; }
     #audio-toggle-btn.muted svg { transform: scale(0.85); opacity: 0.6; }
+    /* Clase de salida suave */
+    #audio-toggle-btn.fade-out { opacity: 0; transform: scale(0.9); pointer-events: none; }
   </style>
 </head>
 <body>
@@ -113,7 +115,6 @@
     </div>
   </div>
 
-  <!-- Botón fuera del contenedor para no competir con el canvas -->
   <button id="audio-toggle-btn" aria-label="Activar audio" title="Activar audio" class="muted">
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9zM12 4L9.91 6.09 12 8.18V4z"/>
@@ -134,118 +135,112 @@
 
       // Cursor y tilt (mostrar también en tap)
       let cursorIdleTimer;
-      function updateCursorPosition(clientX, clientY) {
+      function updateCursorPosition(x, y) {
         cursor.classList.remove('hidden');
         clearTimeout(cursorIdleTimer);
         cursorIdleTimer = setTimeout(() => cursor.classList.add('hidden'), 2000);
         const { innerWidth, innerHeight } = window;
         videoContainer.style.transform =
-          `rotateX(${(clientY / innerHeight - 0.5) * -20}deg) rotateY(${(clientX / innerWidth - 0.5) * 20}deg)`;
-        cursor.style.left = `${clientX}px`;
-        cursor.style.top = `${clientY}px`;
+          `rotateX(${(y / innerHeight - 0.5) * -20}deg) rotateY(${(x / innerWidth - 0.5) * 20}deg)`;
+        cursor.style.left = `${x}px`; cursor.style.top = `${y}px`;
       }
       document.addEventListener('pointermove', (e) => updateCursorPosition(e.clientX, e.clientY), { passive: true });
       document.addEventListener('pointerdown', (e) => updateCursorPosition(e.clientX, e.clientY), { passive: true });
 
-      // Sincronización precisa usando requestVideoFrameCallback con corrección suave
+      // Escalado HiDPI de los canvas
+      function resizeCanvas(canvas, ctx) {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const w = Math.floor(window.innerWidth);
+        const h = Math.floor(window.innerHeight);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      function resizeAll() {
+        resizeCanvas(drawingCanvas, dCtx);
+        resizeCanvas(particleCanvas, pCtx);
+      }
+      resizeAll();
+      window.addEventListener('resize', resizeAll);
+
+      // Sincronización precisa de videos con rVFC
       let rvfHandle = null;
       function syncStep(now, metadata) {
-        // Mantén al fondo pegado a mainVideo con corrección suave de tasa
         const drift = (bgVideo.currentTime || 0) - (mainVideo.currentTime || 0);
-        const abs = Math.abs(drift);
-        if (abs > 0.12) {
-          // Desfase grande: realinear de golpe
+        if (Math.abs(drift) > 0.12) {
           bgVideo.currentTime = mainVideo.currentTime;
           bgVideo.playbackRate = 1.0;
         } else {
-          // Desfase pequeño: corrección proporcional limitada
-          const kp = 0.35; // ganancia moderada
-          const maxAdj = 0.06; // límite de +/- 6%
+          const kp = 0.35, maxAdj = 0.06;
           let adj = 1 - Math.max(-maxAdj, Math.min(maxAdj, kp * drift));
-          // Evita NaN e infinitos
           if (!Number.isFinite(adj)) adj = 1.0;
           bgVideo.playbackRate = adj;
         }
         rvfHandle = mainVideo.requestVideoFrameCallback(syncStep);
       }
       function startSync() {
-        try {
-          if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-            if (rvfHandle !== null) mainVideo.cancelVideoFrameCallback(rvfHandle);
-            rvfHandle = mainVideo.requestVideoFrameCallback(syncStep);
-          } else {
-            // Fallback por rAF si no hay rVFC
-            const rafLoop = () => {
-              const drift = (bgVideo.currentTime || 0) - (mainVideo.currentTime || 0);
-              if (Math.abs(drift) > 0.12) bgVideo.currentTime = mainVideo.currentTime;
-              requestAnimationFrame(rafLoop);
-            };
-            requestAnimationFrame(rafLoop);
-          }
-        } catch {}
+        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+          if (rvfHandle !== null) mainVideo.cancelVideoFrameCallback(rvfHandle);
+          rvfHandle = mainVideo.requestVideoFrameCallback(syncStep);
+        } else {
+          const loop = () => {
+            const drift = (bgVideo.currentTime || 0) - (mainVideo.currentTime || 0);
+            if (Math.abs(drift) > 0.12) bgVideo.currentTime = mainVideo.currentTime;
+            requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        }
       }
-      const videoReady = (vid) => new Promise(resolve => vid.addEventListener('canplaythrough', resolve, { once: true }));
+      const videoReady = (vid) => new Promise(r => vid.addEventListener('canplaythrough', r, { once: true }));
       Promise.all([videoReady(mainVideo), videoReady(bgVideo)]).then(() => {
-        mainVideo.play();
-        bgVideo.play();
-        startSync();
+        mainVideo.play(); bgVideo.play(); startSync();
       });
       mainVideo.addEventListener('play', () => { bgVideo.play(); startSync(); });
-      mainVideo.addEventListener('pause', () => { bgVideo.pause(); if (rvfHandle !== null) mainVideo.cancelVideoFrameCallback(rvfHandle); });
+      mainVideo.addEventListener('pause', () => {
+        bgVideo.pause();
+        try { if (rvfHandle !== null) mainVideo.cancelVideoFrameCallback(rvfHandle); } catch {}
+      });
 
-      // Resize canvases
-      const resizeDrawingCanvas = () => { drawingCanvas.width = window.innerWidth; drawingCanvas.height = window.innerHeight; };
-      const resizeParticleCanvas = () => { particleCanvas.width = window.innerWidth; particleCanvas.height = window.innerHeight; };
-      resizeDrawingCanvas(); resizeParticleCanvas();
-      window.addEventListener('resize', () => { resizeDrawingCanvas(); resizeParticleCanvas(); });
-
-      // Estilo de trazo mejorado
+      // Estilo de trazo
       dCtx.strokeStyle = '#FFFFFF';
-      dCtx.lineWidth = 3;
-      dCtx.lineCap = 'round';   // extremos suaves
-      dCtx.lineJoin = 'round';  // uniones suaves
-      dCtx.shadowColor = 'rgba(255,255,255,0.85)'; // brillo tipo neón
+      dCtx.lineCap = 'round';
+      dCtx.lineJoin = 'round';
+      dCtx.shadowColor = 'rgba(255,255,255,0.85)';
       dCtx.shadowBlur = 6;
-      dCtx.globalCompositeOperation = 'lighter'; // suma luz para resaltar
+      dCtx.globalCompositeOperation = 'lighter';
 
-      // Smoothing por curvas + grosor dinámico
-      let drawingReady = true;
+      // Dibujo móvil‑first con curvas y grosor dinámico
       let isDrawing = false;
-      let points = []; // {x,y,t,p}
+      let points = [];
       let lastWidth = 3;
-      const minW = 1.6, maxW = 6.5;
+      const minW = 1.8, maxW = 7;
 
       function strokeWidthFrom(e, prev) {
-        const p = { x: e.clientX, y: e.clientY, t: performance.now(), p: e.pressure ?? 0.5 };
+        const now = performance.now();
+        const p = { x: e.clientX, y: e.clientY, t: now, pr: e.pressure ?? 0.5 };
         if (!prev) return maxW;
         const dt = Math.max(1, p.t - prev.t);
         const dx = p.x - prev.x, dy = p.y - prev.y;
-        const v = Math.hypot(dx, dy) / dt; // px/ms
-        const speed = Math.min(1.0, v / 1.2); // normaliza
-        // Combina presión (si existe) e inverso de velocidad
-        const press = Math.max(0.2, p.p);
-        const base = (1 - speed) * 0.7 + press * 0.3;
-        const w = minW + (maxW - minW) * base;
-        return w;
+        const speed = Math.min(1.0, Math.hypot(dx, dy) / dt);
+        const pressure = Math.max(0.25, p.pr);
+        const base = (1 - speed) * 0.7 + pressure * 0.3;
+        return minW + (maxW - minW) * base;
       }
-
       function drawSmoothPath() {
         if (points.length < 2) return;
         dCtx.beginPath();
         dCtx.moveTo(points[0].x, points[0].y);
         for (let i = 1; i < points.length - 1; i++) {
-          const curr = points[i];
-          const next = points[i + 1];
-          const cx = (curr.x + next.x) / 2;
-          const cy = (curr.y + next.y) / 2;
-          dCtx.quadraticCurveTo(curr.x, curr.y, cx, cy);
+          const curr = points[i], next = points[i + 1];
+          dCtx.quadraticCurveTo(curr.x, curr.y, (curr.x + next.x) / 2, (curr.y + next.y) / 2);
         }
         dCtx.stroke();
       }
 
       function handleStart(e) {
-        if (!drawingReady) return;
-        // Evita robar el toque del botón
+        // Ignora si el toque cae sobre el botón
         const btn = audioToggleBtn.getBoundingClientRect();
         if (e.clientX >= btn.left && e.clientX <= btn.right && e.clientY >= btn.top && e.clientY <= btn.bottom) return;
 
@@ -253,63 +248,54 @@
         try { drawingCanvas.setPointerCapture(e.pointerId); } catch {}
 
         isDrawing = true;
-        points = [{ x: e.clientX, y: e.clientY, t: performance.now(), p: e.pressure ?? 0.5 }];
-        // Punto inicial visible
-        dCtx.save();
+        points = [{ x: e.clientX, y: e.clientY, t: performance.now(), pr: e.pressure ?? 0.5 }];
         const w0 = strokeWidthFrom(e, null);
         lastWidth = w0;
         dCtx.lineWidth = w0;
+        // punto inicial
         dCtx.beginPath();
         dCtx.arc(e.clientX, e.clientY, Math.max(1, w0 * 0.5), 0, Math.PI * 2);
         dCtx.fillStyle = dCtx.strokeStyle;
         dCtx.fill();
-        dCtx.restore();
 
-        // Cursor visible en tap
         cursor.classList.remove('hidden');
         cursor.style.left = `${e.clientX}px`;
         cursor.style.top = `${e.clientY}px`;
       }
-
       function handleMove(e) {
-        if (!drawingReady || !isDrawing) return;
+        if (!isDrawing) return;
         e.preventDefault();
-
         const prev = points[points.length - 1];
-        points.push({ x: e.clientX, y: e.clientY, t: performance.now(), p: e.pressure ?? 0.5 });
-        // Ajusta grosor suavemente
+        points.push({ x: e.clientX, y: e.clientY, t: performance.now(), pr: e.pressure ?? 0.5 });
         const target = strokeWidthFrom(e, prev);
         lastWidth = lastWidth + (target - lastWidth) * 0.25;
         dCtx.lineWidth = lastWidth;
         drawSmoothPath();
-        // Limita la cola de puntos para rendimiento
         if (points.length > 64) points.shift();
       }
-
       function handleEnd(e) {
-        if (!drawingReady) return;
         isDrawing = false;
         points = [];
         try { drawingCanvas.releasePointerCapture(e.pointerId); } catch {}
       }
 
+      // Listeners del canvas (no pasivos para permitir preventDefault)
       drawingCanvas.addEventListener('pointerdown', handleStart, { passive: false });
       drawingCanvas.addEventListener('pointermove', handleMove, { passive: false });
       drawingCanvas.addEventListener('pointerup', handleEnd);
       drawingCanvas.addEventListener('pointercancel', handleEnd);
       drawingCanvas.addEventListener('pointerleave', handleEnd);
 
-      // Estela de desvanecimiento suave
+      // Estela de desvanecimiento
       function fadeDrawingTrail() {
-        if (!drawingReady) return;
         dCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
         dCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
         requestAnimationFrame(fadeDrawingTrail);
       }
       fadeDrawingTrail();
 
-      // Botón de audio: activar una vez y ocultar
-      audioToggleBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+      // Botón de audio: activar y ocultar con fade suave
+      audioToggleBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
       audioToggleBtn.addEventListener('click', async () => {
         if (!window.audioContext) {
           window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -317,20 +303,21 @@
         if (window.audioContext.state === 'suspended') {
           await window.audioContext.resume();
         }
-
         if (!window.analyser) {
           const source = window.audioContext.createMediaElementSource(mainVideo);
           window.analyser = window.audioContext.createAnalyser();
           source.connect(window.analyser);
           window.analyser.connect(window.audioContext.destination);
         }
-
         mainVideo.muted = false;
-        audioToggleBtn.classList.remove('muted');
-        audioToggleBtn.hidden = true; // ocultar permanentemente tras activación
+
+        // Fade-out suave y luego ocultar con hidden
+        audioToggleBtn.classList.add('fade-out');
+        const onEnd = () => { audioToggleBtn.hidden = true; audioToggleBtn.removeEventListener('transitionend', onEnd); };
+        audioToggleBtn.addEventListener('transitionend', onEnd);
       });
 
-      // Motor de partículas (sin cambios funcionales aquí)
+      // Motor de partículas básico (tu lógica existente puede quedarse)
       let particlesArray = [];
       class Particle {
         constructor(x, y, color) {
@@ -368,26 +355,19 @@
       }
       function animateParticles() {
         const analyser = window.analyser;
-        let energyBoost = 0, treble = 50;
+        let energyBoost = 0;
         if (analyser) {
           const bufferLength = analyser.frequencyBinCount;
           const dataArray = new Uint8Array(bufferLength);
           analyser.getByteFrequencyData(dataArray);
-          // Pequeño promedio para brillo y dinamismo general
-          treble = dataArray.slice(Math.floor(bufferLength * 0.5)).reduce((a,b)=>a+b,0) / Math.max(1, bufferLength*0.5);
-          energyBoost = treble;
-          // Disparo ocasional
+          energyBoost = dataArray.slice(Math.floor(bufferLength * 0.5)).reduce((a,b)=>a+b,0) / Math.max(1, bufferLength*0.5);
           if (Math.random() < 0.02) createNebula(Math.random()*particleCanvas.width, Math.random()*particleCanvas.height, 40 + Math.random()*60);
         }
         pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
         for (let i = particlesArray.length - 1; i >= 0; i--) {
           const p = particlesArray[i];
-          if (p.life <= 0) {
-            particlesArray.splice(i, 1);
-          } else {
-            p.update(energyBoost);
-            p.draw(energyBoost);
-          }
+          if (p.life <= 0) particlesArray.splice(i, 1);
+          else { p.update(energyBoost); p.draw(energyBoost); }
         }
         requestAnimationFrame(animateParticles);
       }

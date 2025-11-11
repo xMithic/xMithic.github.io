@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PanitaV</title>
+  <title>Panita6</title>
   <style>
     :root {
       --cursor-size: 12px;
@@ -28,7 +28,6 @@
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
-      /* Evita gestos del navegador que interrumpen el dibujo */
       touch-action: none;
       overscroll-behavior: none;
       -webkit-touch-callout: none;
@@ -59,8 +58,8 @@
     #drawing-canvas {
       z-index: 50;
       mix-blend-mode: difference;
-      pointer-events: auto; /* debe recibir toques para dibujar */
-      touch-action: none;   /* desactiva gestos por defecto en el canvas */
+      pointer-events: auto;
+      touch-action: none;
     }
 
     .perspective-wrapper {
@@ -76,7 +75,6 @@
       width: 680px; max-width: 95%;
       transform-style: preserve-3d;
       animation: reveal 1s ease-out 0.5s backwards;
-      /* No bloqueará el botón porque lo movemos fuera */
       pointer-events: none;
       user-select: none;
       position: relative;
@@ -134,16 +132,16 @@
 
     /* Botón de volumen: fijo y por encima del canvas */
     #audio-toggle-btn {
-      position: fixed; /* antes era absolute dentro del contenedor */
+      position: fixed;
       top: 16px; right: 16px;
-      z-index: 10010; /* mayor que el canvas (50) */
+      z-index: 10010;
       background-color: rgba(255,255,255,0.15);
       border: none; border-radius: 12px;
       width: 42px; height: 42px;
       display: flex; justify-content: center; align-items: center;
       transition: background-color 0.3s ease;
       pointer-events: auto;
-      touch-action: manipulation; /* sin delay ni gestos extra */
+      touch-action: manipulation;
     }
     #audio-toggle-btn:hover { background-color: rgba(255,255,255,0.4); }
     #audio-toggle-btn svg {
@@ -175,7 +173,7 @@
     </div>
   </div>
 
-  <!-- Mover el botón fuera del contenedor del video -->
+  <!-- Botón fuera del contenedor, por encima del canvas -->
   <button id="audio-toggle-btn" aria-label="Activar o silenciar audio" title="Activar audio" class="muted">
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9zM12 4L9.91 6.09 12 8.18V4z"/>
@@ -194,7 +192,7 @@
       const pCtx = particleCanvas.getContext('2d');
       const audioToggleBtn = document.getElementById('audio-toggle-btn');
 
-      // Cursor y tilt
+      // Mostrar cursor y tilt con Pointer Events
       let cursorIdleTimer;
       function updateCursorPosition(clientX, clientY) {
         cursor.classList.remove('hidden');
@@ -206,10 +204,8 @@
         cursor.style.left = `${clientX}px`;
         cursor.style.top = `${clientY}px`;
       }
-      document.addEventListener('mousemove', (e) => updateCursorPosition(e.clientX, e.clientY), { passive: true });
-      document.addEventListener('touchmove', (e) => {
-        if (e.touches.length > 0) updateCursorPosition(e.touches[0].clientX, e.touches[0].clientY);
-      }, { passive: true });
+      document.addEventListener('pointermove', (e) => updateCursorPosition(e.clientX, e.clientY), { passive: true });
+      document.addEventListener('pointerdown', (e) => updateCursorPosition(e.clientX, e.clientY), { passive: true });
 
       // Sincronizar videos
       const videoReady = (vid) => new Promise(resolve => vid.addEventListener('canplaythrough', resolve, { once: true }));
@@ -225,7 +221,7 @@
         syncLoop();
       });
 
-      // Canvas tamaños
+      // Canvases tamaños
       const resizeDrawingCanvas = () => {
         drawingCanvas.width = window.innerWidth;
         drawingCanvas.height = window.innerHeight;
@@ -245,19 +241,32 @@
       dCtx.lineJoin = 'round';
 
       // Dibujo con Pointer Events
-      let drawingReady = false;
+      let drawingReady = true; // Habilitado por defecto
       let isDrawing = false, lastX = 0, lastY = 0;
 
       function handleStart(e) {
         if (!drawingReady) return;
-        // si por alguna razón toca el botón, ignorar
+
+        // Evitar dibujar si el toque es sobre el botón (defensa extra)
         const btn = audioToggleBtn.getBoundingClientRect();
         if (e.clientX >= btn.left && e.clientX <= btn.right && e.clientY >= btn.top && e.clientY <= btn.bottom) return;
 
         e.preventDefault();
-        drawingCanvas.setPointerCapture(e.pointerId);
+        try { drawingCanvas.setPointerCapture(e.pointerId); } catch {}
+
         isDrawing = true;
         lastX = e.clientX; lastY = e.clientY;
+
+        // Marca inicial para que un "tap" deje punto visible
+        dCtx.beginPath();
+        dCtx.arc(lastX, lastY, Math.max(1, dCtx.lineWidth / 2), 0, Math.PI * 2);
+        dCtx.fillStyle = dCtx.strokeStyle;
+        dCtx.fill();
+
+        // Asegura el cursor visible en el tap
+        cursor.classList.remove('hidden');
+        cursor.style.left = `${e.clientX}px`;
+        cursor.style.top = `${e.clientY}px`;
       }
 
       function handleMove(e) {
@@ -289,9 +298,12 @@
         dCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
         requestAnimationFrame(fadeDrawingTrail);
       }
+      fadeDrawingTrail();
 
-      // Botón de audio (queda visible para volver a mutear si quieres)
-      audioToggleBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      // Botón de audio (toggle mute, no bloquea dibujo)
+      audioToggleBtn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+      });
       audioToggleBtn.addEventListener('click', async () => {
         if (!window.audioContext) {
           window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -307,15 +319,11 @@
           window.analyser.connect(window.audioContext.destination);
         }
 
-        // Toggle mute y habilitar dibujo desde el primer toque
         mainVideo.muted = !mainVideo.muted;
         audioToggleBtn.classList.toggle('muted', mainVideo.muted);
 
-        if (!drawingReady) {
-          drawingReady = true;
-          fadeDrawingTrail();
-          animateParticles();
-        }
+        // Si quieres ocultar el botón tras activar audio, descomenta:
+        // if (!mainVideo.muted) audioToggleBtn.style.display = 'none';
       });
 
       // Motor de partículas
@@ -362,8 +370,8 @@
 
       function animateParticles() {
         if (!window.analyser) return;
-        const analyser = window.analyser;
 
+        const analyser = window.analyser;
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteFrequencyData(dataArray);
@@ -395,6 +403,7 @@
         }
         requestAnimationFrame(animateParticles);
       }
+      animateParticles();
     });
   </script>
 </body>

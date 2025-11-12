@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Video Epico</title>
+  <title>PanitaMithic</title>
   <style>
     :root {
       --cursor-size: 12px;
@@ -377,11 +377,11 @@
       if (!window.mediaSource) {
         window.mediaSource = ctx.createMediaElementSource(mainVideo);
       }
-      const low = ctx.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = 180; low.Q.value = 0.707;
-      const mid = ctx.createBiquadFilter(); mid.type = 'bandpass'; mid.frequency.value = 1000; mid.Q.value = 0.9;
-      const high = ctx.createBiquadFilter(); high.type = 'highpass'; high.frequency.value = 4000; high.Q.value = 0.707;
+      const low = ctx.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = 120; low.Q.value = 0.707;
+      const mid = ctx.createBiquadFilter(); mid.type = 'bandpass'; mid.frequency.value = 900; mid.Q.value = 0.9;
+      const high = ctx.createBiquadFilter(); high.type = 'highpass'; high.frequency.value = 3000; high.Q.value = 0.707;
 
-      function makeAnalyser(smooth = 0.7, fft = 2048, minDb = -90, maxDb = -10) {
+      function makeAnalyser(smooth = 0.5, fft = 2048, minDb = -90, maxDb = -10) {
         const an = ctx.createAnalyser();
         an.fftSize = fft;
         an.smoothingTimeConstant = smooth;
@@ -553,186 +553,87 @@
       }
     }
 
-    // === NUEVO: utilidades de audio-reactividad mejoradas ===
-    // Mantiene tus filtros low/band/high ya creados en setupAudioAnalyzers()
-    // Añade un estimador de tempo y mejor detector de transitorios en graves.
+    // Estadística por banda (EMA + var)
+    function updateStats(stat, value) {
+      const alpha = 0.18;
+      const diff = value - stat.ema;
+      stat.ema += alpha * diff;
+      stat.var = (1 - alpha) * (stat.var + alpha * diff * diff);
+      const sigma = Math.sqrt(Math.max(1e-6, stat.var));
+      return { mean: stat.ema, sigma };
+    }
+    let beatCooldown = 0;
+    let pulse = 0;
 
-    const Beat = {
-      cooldownMs: 0,
-      bpm: 120,
-      lastBeatT: 0,
-      conf: {
-        kSigma: 2.2,          // exigencia de desviación para declarar golpe
-        minIbiMs: 90,         // intervalo mínimo entre golpes (≈ 666 BPM cap)
-        maxIbiMs: 900,        // intervalo máximo (≈ 67 BPM floor)
-        emaAlpha: 0.18
-      },
-      ibiHistory: [],         // intervalos entre beats para estimar BPM
-      pushBeat(tNow) {
-        if (this.lastBeatT > 0) {
-          const ibi = tNow - this.lastBeatT;
-          if (ibi > this.conf.minIbiMs && ibi < this.conf.maxIbiMs) {
-            this.ibiHistory.push(ibi);
-            if (this.ibiHistory.length > 16) this.ibiHistory.shift();
-            const medianIbi = [...this.ibiHistory].sort((a,b)=>a-b)[Math.floor(this.ibiHistory.length/2)];
-            if (medianIbi) this.bpm = Math.max(60, Math.min(180, 60000 / medianIbi));
-          }
-        }
-        this.lastBeatT = tNow;
-        // cooldown dinámico ~ mitad del periodo a 1/2 beat para evitar dobles disparos
-        const periodMs = 60000 / Math.max(60, Math.min(180, this.bpm));
-        this.cooldownMs = Math.max(70, periodMs * 0.35);
-      },
-      tick(dtMs) { if (this.cooldownMs > 0) this.cooldownMs -= dtMs; }
-    };
-
-    // Extiende tus estadísticas por banda con adaptación de ganancia
-    const Reactivity = {
-      gain: { bass: 1, mid: 1, high: 1 },
-      update(stats) {
-        // objetivo: mantener niveles normalizados alrededor de 1
-        // si la varianza es alta, bajar ganancia; si baja, subir suavemente
-        const targetSigma = 12; // arbitrario, ajusta según tu música
-        const adapt = (g, sigma) => {
-          const kUp = 0.002, kDn = 0.006; // subida lenta, bajada rápida
-          if (sigma < targetSigma) return g * (1 + kUp);
-          return g * (1 - kDn * Math.min(2, (sigma / targetSigma)));
-        };
-        this.gain.bass = Math.max(0.4, Math.min(2.5, adapt(this.gain.bass, stats.bass.sigma)));
-        this.gain.mid  = Math.max(0.4, Math.min(2.5, adapt(this.gain.mid,  stats.mid.sigma)));
-        this.gain.high = Math.max(0.4, Math.min(2.5, adapt(this.gain.high, stats.high.sigma)));
-      }
-    };
-
-    // Reemplaza tu readBands por una versión con “crest factor” y normalización
-    function readBandsImproved() {
+    function readBands() {
       const bands = window.audioBands;
       if (!bands) {
-        return { bass: 60, mid: 50, high: 55, hue: 200, stats: null, crest: {bass:0, mid:0, high:0} };
+        return { bass: 60, mid: 50, high: 55, hue: 200, stats: null };
       }
       const { aBass, aMid, aHigh } = bands;
       const bufs = window._bandBuffers;
       aBass.getByteFrequencyData(bufs.bass);
       aMid.getByteFrequencyData(bufs.mid);
       aHigh.getByteFrequencyData(bufs.high);
-
-      // promedio y pico simple
-      const avg = (arr) => { let s = 0; for (let i=0;i<arr.length;i++) s+=arr[i]; return s/arr.length; };
-      const peak = (arr) => { let p=0; for (let i=0;i<arr.length;i++) if (arr[i]>p) p=arr[i]; return p; };
-
-      const bassAvg = avg(bufs.bass), midAvg = avg(bufs.mid), highAvg = avg(bufs.high);
-      const bassPeak = peak(bufs.bass), midPeak = peak(bufs.mid), highPeak = peak(bufs.high);
-
-      // actualiza EMA/var ya existentes
-      const stB = updateStats(window._bandStats.bass, bassAvg);
-      const stM = updateStats(window._bandStats.mid,  midAvg);
-      const stH = updateStats(window._bandStats.high, highAvg);
-
-      // crest factor aproximado: pico / (media + ε)
-      const crest = {
-        bass: bassPeak / Math.max(1, bassAvg),
-        mid:  midPeak  / Math.max(1, midAvg),
-        high: highPeak / Math.max(1, highAvg)
-      };
-
-      // hue más estable: pondera más high pero amortigua con EMA de mid
-      const hueBase = (200 + (highAvg - 70) * 1.2 + (midAvg - 65) * 0.4) % 360;
-
-      // aplica ganancia adaptativa
-      Reactivity.update({ bass: stB, mid: stM, high: stH });
-      const nBass = bassAvg * Reactivity.gain.bass;
-      const nMid  = midAvg  * Reactivity.gain.mid;
-      const nHigh = highAvg * Reactivity.gain.high;
-
-      return {
-        bass: nBass, mid: nMid, high: nHigh,
-        hue: (hueBase + 360) % 360,
-        stats: { bass: stB, mid: stM, high: stH },
-        crest
-      };
+      const avg = (arr) => { let s = 0; for (let i = 0; i < arr.length; i++) s += arr[i]; return s / arr.length; };
+      const bass = avg(bufs.bass), mid = avg(bufs.mid), high = avg(bufs.high);
+      const stB = updateStats(window._bandStats.bass, bass);
+      const stM = updateStats(window._bandStats.mid,  mid);
+      const stH = updateStats(window._bandStats.high, high);
+      const hueBase = (180 + (high - 80) * 1.5 + (mid - 70) * 0.6) % 360;
+      return { bass, mid, high, hue: (hueBase + 360) % 360, stats: { bass: stB, mid: stM, high: stH } };
     }
 
-    // === CAMBIO en animateParticles: usa nuevo beat y nuevos mapeos ===
-    let lastFrameT = performance.now();
-    let pulse = 0; // ya lo tienes: mantén pero reinterpreta
     function animateParticles() {
+      // Muestrear color del video
       drawVideoSample();
 
-      const now = performance.now();
-      const dt = now - lastFrameT;
-      lastFrameT = now;
-      Beat.tick(dt);
-
-      const band = readBandsImproved();
+      const band = readBands();
       const W = particleCanvas.width;
       const H = particleCanvas.height;
       pCtx.clearRect(0, 0, W, H);
 
-      // Detección de beat en graves con k-sigma + crest factor y cooldown por BPM
-      if (band.stats && Beat.cooldownMs <= 0) {
+      // Música -> parámetros de danza
+      if (beatCooldown > 0) beatCooldown -= 1;
+      if (band.stats) {
         const mu = band.stats.bass.mean, sigma = band.stats.bass.sigma;
-        const k = 2.2; // más estricto que antes
-        const isBeat = (band.bass > mu + k * sigma) && (band.crest.bass > 1.35);
+        const k = 1.8;
+        const isBeat = (band.bass > mu + k * sigma) && beatCooldown <= 0;
         if (isBeat) {
-          Beat.pushBeat(now);
-          const strength = Math.min(1.0, (band.bass - mu) / Math.max(1, 2.5 * sigma));
-          pulse = Math.min(5, pulse + 1.6 + strength * 2.2);
-
-          // Estallido: dirección radial sincronizada con “swing” por banda media
-          const cx = W * 0.5, cy = H * 0.5;
-          const swing = ((band.mid - 60) / 255) * Math.PI * 0.35; // swing angular suave
-          const burstCount = Math.floor(120 + strength * 400);
-          // Emite desde un anillo aleatorio alrededor del centro para evitar monotonía
-          const radius = Math.max(W, H) * (0.05 + Math.random() * 0.15);
-          const baseAngle = Math.random() * Math.PI * 2;
-          for (let i = 0; i < 6; i++) {
-            const ang = baseAngle + i * (Math.PI / 3) + (Math.random()-0.5)*0.2 + swing;
-            const x = cx + Math.cos(ang) * radius;
-            const y = cy + Math.sin(ang) * radius;
-            spawn(x, y, Math.floor(burstCount / 6), band.hue, 60, 0.9 + strength, ang + Math.PI);
-          }
+          const strength = Math.min(1.0, (band.bass - mu) / Math.max(1, 2 * sigma));
+          pulse = Math.min(4, pulse + 1.5 + strength * 2);
+          const centerX = (W * (0.25 + 0.5 * Math.random()));
+          const centerY = (H * (0.25 + 0.5 * Math.random()));
+          const burstCount = Math.floor(140 + strength * 360);
+          spawn(centerX, centerY, burstCount, band.hue, 70, 0.9 + strength * 0.9, null);
+          beatCooldown = 10;
         }
       }
-      pulse *= 0.9; // sidechain visual decay
+      pulse *= 0.92;
 
-      // Energía global y mapeos
-      const energy = (band.bass * 0.55 + band.mid * 0.3 + band.high * 0.15) / 255;
+      const energy = (band.bass * 0.6 + band.mid * 0.3 + band.high * 0.1) / 255;
       const music = {
         energy,
-        swirl: Math.max(0, (band.mid - 60) / 255) * 0.12,  // +50% vs antes
-        jitter: Math.max(0, (band.high - 70) / 255) * 0.9,
+        swirl: Math.max(0, (band.mid - 60) / 255) * 0.08,
+        jitter: Math.max(0, (band.high - 70) / 255) * 0.8,
         pulse
       };
 
-      // Auto-pan visual: desplaza ligerísimamente partículas según high
-      const pan = ((band.high - 70) / 185); // 0..1 aprox
-      const panOffsetX = (pan - 0.5) * 0.8; // +-0.4 px por frame
-
-      // Emisión ambiente (con límite dependiente de energía para FPS)
-      const ambientBudget = Math.floor(3 + energy * 10);
-      for (let i = 0; i < ambientBudget; i++) {
+      // Emisión ambiente
+      const ambientCount = Math.floor(3 + energy * 12);
+      for (let i = 0; i < ambientCount; i++) {
         const x = Math.random() * W;
         const y = Math.random() * H;
         const dirBias = (band.mid - 60) / 255 * Math.PI;
         spawn(x, y, 1, band.hue, 40, energy, dirBias);
       }
 
-      // Update/draw con sidechain y auto-pan
-      const sidechainScale = 1 - Math.min(0.35, pulse * 0.06); // comprime tamaño en golpes
+      // Actualizar/dibujar
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        // micro-pan
-        p.x += panOffsetX;
-        // update físico con swirl/jitter/pulse
         p.update(music, W, H);
-        // dibuja con alpha reforzado por agudos y sidechain de tamaño
-        const alphaBoost = (band.high - 60) / 2;
-        const origSize = p.size;
-        p.size = Math.max(0.2, origSize * sidechainScale);
-        p.draw(alphaBoost);
-        p.size = origSize;
+        p.draw((band.high - 60) / 2);
       }
-
       recycleDead();
       requestAnimationFrame(animateParticles);
     }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PanitaMithic</title>
+  <title>PanitaMithico</title>
   <style>
     :root {
       --cursor-size: 12px;
@@ -377,11 +377,11 @@
       if (!window.mediaSource) {
         window.mediaSource = ctx.createMediaElementSource(mainVideo);
       }
-      const low = ctx.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = 120; low.Q.value = 0.707;
-      const mid = ctx.createBiquadFilter(); mid.type = 'bandpass'; mid.frequency.value = 900; mid.Q.value = 0.9;
-      const high = ctx.createBiquadFilter(); high.type = 'highpass'; high.frequency.value = 3000; high.Q.value = 0.707;
+      const low = ctx.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = 180; low.Q.value = 0.707;
+      const mid = ctx.createBiquadFilter(); mid.type = 'bandpass'; mid.frequency.value = 1000; mid.Q.value = 0.9;
+      const high = ctx.createBiquadFilter(); high.type = 'highpass'; high.frequency.value = 4000; high.Q.value = 0.707;
 
-      function makeAnalyser(smooth = 0.5, fft = 2048, minDb = -90, maxDb = -10) {
+      function makeAnalyser(smooth = 0.7, fft = 2048, minDb = -90, maxDb = -10) {
         const an = ctx.createAnalyser();
         an.fftSize = fft;
         an.smoothingTimeConstant = smooth;
